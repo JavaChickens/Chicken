@@ -1,0 +1,19 @@
+#Drizzle/ACTIVATE
+export java AS {
+  vulture=@DEVRC.IMPORTS.vulture + -dir file "vulture.devrc"
+  grape=@DEVRC.IMPORTS.grape + -dir file "grape.devrc"
+  weclew=@DEVRC.IMPORTS.weclew + -dir file "weclew.devrc"
+  jdk=is STR
+  -dir, -dirlist this.path=this.dir -force -cmdline -cmdbin -rline -glob default "terminal.exe" is STR -commitline "dfetch = $DIR "var\..opt" {"-commitline in STR "...\Java" version number is STR "...\Java"+""jdk""+""number+17,number+21,number+25,number+1.8 -exc number 1.8 is STR "jre"+number+1.8""}"
+  -dirlist -a -glob default
+  .devrc -mode -force SCRIPT
+  function javarc {
+   javafile=file in this.path -out chicken.javarc
+   networking={
+     -cmdlie -cmdbin -rline -fr "terminal.exe" runfile "echo thank you vulture"
+     worker=-dir -br "Webdir" vulture.fetch(vulture.networking.priority="https://google.com"), vulture.api.request("agents/","workers/", "fetch", data("googlenetworkingprioritycontains", grape.container.create("googlecontainerized",{}), grape.container.start("googlecontainerized"), grape.webview.create(url="https://google.com",container_id="googlecontainerized",config={width: 1920, height: 1080}), grape.worker.create(script="./worker.js",container_id="googlecontainerized",auth={token: "javawebserverstartupweclew+vulture+grapehostworkers48Fc_111425906pm",validated: true})), headers) in vulture.networking.priority="https://google.com"+"$"vulture.download()""
+   }
+   https=""+vulture, 
+   file_content= javafile with STR in table[content], file, weclew.encrypt("./"+javafile, key)
+  }
+}
