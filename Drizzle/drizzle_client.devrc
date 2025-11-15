@@ -1,0 +1,64 @@
+#[Drizzle]/ACTIVATE
+poot={} try (content)
+dirlist= -glob default -out "dirlist" @DEVRC.IMPORT="./drizzle.devrc" is STR "dirlist" in content[null]
+currentdir=dirlist "./" this.dir
+in file is STR -glob default is ""filename".exe" this.file in STR "terminal"+".exe" is STR "CMD"+".exe" is STR "PowerShell"+".exe" in STR is true with filename, file_ext -set -a -glob content[true]
+-r default is debug in debug env[content] with drizzle
+env=drizzle in #[Drizzle]/ACTIVATE -r default 
+subenv=env.category
+prod=drizzle[content+subenv=["debug","prod","dev"]]
+linenum=this.lines.fetched (-out is numerics)
+current= -linenum -getline -out currentdir + -activeline true for (current) -activeline get content[null]
+func=function (
+  return table[content]
+)
+-r debug export (
+  this.modes
+  this.script
+  this.env
+  this.debugging -enable for (this.script.name in this.dir is STR "./" in STR is "drizzle_client.devrc" get file -cmdbin -cmdline -rline) else catch {
+    err in STR "exceptions" with table[content]
+  }
+  this.types.enabled=false
+  return {current -out table[content] with -r debug -expotag}
+)
+tokenlist.spec.equalsign="=" -out is STR for ("=") export (
+  tokenlist.spec."*" in STR table[content] with tokenlist, content[STR -11 -exclude "="]
+  return {tokenlist.spec."*" in STR}
+) 
+tokenlist=table[content] in STR content["!","@","#","$","%","^","&","*","(",")","=","+"]
+keyword=""STR""
+var= -out is STR in file with STR "{"keyword"}"with""token in tokenlist in STR table[content] content["="] catch ""this tokenlist in table[content] get ""tokenlist.spec.equalsign""
+export drizzle (
+  -out poot, -r debug
+  -out poot, -r prod
+  -out poot, -r dev
+  -force -enable
+  -mode SCRIPT
+  function (
+    for (drizzle) in env, this.drizzle ({
+      in -cmdbin -cmdline -commitline -rline in file is STR -glob default (get) in STR "./Drizzle/ACTIVATE" in currentdir if (this current-cmdline -rline=error return is STR -out "Cant at this time, sorry!" )
+    })
+  ) 
+  input= -cmdbin -cmdline "INPUT:" is STR "." -usr -active -glob default -a
+  get input -out is STR -o numerics
+  input is -in STR "../"  @DEVRC.IMPORT.drizzle is .devrc{function (
+    .devrc -out -pop try -cmdline(
+      table= is STR "../" in this.dir "drizzle.devrc" @DEVRC.IMPORT.table is true in STR
+      is STR -cmdbin -cmdline -rline is env in table[content] with STR "python drizzle_devrc.py drizzle.devrc" -cmdline -commitline do this.cmd in file
+      get filename, file_ext, is STR 
+    )
+    .devrc -out -c .rc
+    err= is false -o null with var -o func
+    COCOHOWTO= is STR "../" in this.dir "drizzle.devrc" file, filename, file_ext in STR @DEVRC.IMPORT.COCOHOWTO
+    if (err) try (catch rc_clap) else try (catch err) in STR -o var -o func in STR with table[content]
+  )}
+  return err in table[content]
+)
+
+  
+.devrc -c -f -force for (
+  content in STR "../drizzle.devrc" -out this.dir
+)
+  
+#xcn-byp-COCOHOWTO-compile.proc return {table[content] in STR "[COCO.HOWTO.COMPILE]" this in STR "../" this.lines.fetched {get -out linenum} do -c -cmdbin -cmdline -rline with -commitline content}

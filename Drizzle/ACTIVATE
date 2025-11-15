@@ -1,0 +1,26 @@
+#./[Drizzle]/ACTIVATE
+
+@[Drizzle]
+[DEV.CONFIG]
+environment="Drizzle"
+debug_mode=true
+log_level="verbose"
+hot_reload=true
+
+[DRIZZLE.PATHS]
+.devrc -crfolder -out "./drizzle/src" # create src path for the src of the project created using drizzle.
+.devrc -crfolder -out "./drizzle/build" # create a build path for the build of the project created using drizzle
+.devrc -crfolder -out "./drizzle/logs" # create a logs path for the logs of the project created using drizzle
+.devrc -crfolder -out "./drizzle/temp" # create a temp path for the temp files of the project created using drizzle.
+
+[DRIZZLE.SETTINGS]
+port=3000
+database="drizzle_database.db"
+api_url="http://localhost:3000/api"
+enable_profiler=true
+mock_external_apis=true
+
+[DEV.DEPENDENCIES]
+dependency_dev_tools="devtools-1.0.0"
+dependency_debugger="gdb-12.1"
+dependency_linter="eslint-8.0"
