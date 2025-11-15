@@ -1,0 +1,378 @@
+#[Drizzle](Weclew)/ACTIVATE
+
+@[WeclewCore]
+[WECLEW.CORE]
+name="Weclew"
+version="1.0.0"
+type="encryption"
+description="File encryption and DevRC string conversion tool"
+
+# Weclew initialization
+weclew={} try (encryption)
+weclew.initialized=true
+weclew.algorithm="AES-256"
+weclew.encoding="base64"
+weclew.key_size=256
+
+# =============================================================================
+# WECLEW ENCRYPTION OPERATIONS
+# =============================================================================
+
+@[WeclewEncryption]
+[WECLEW.ENCRYPT]
+# Encrypt file to DevRC string
+weclew.encrypt=function (
+  file_path="" is STR
+  key="" is STR
+  
+  # Read file
+  file_content=get file_path -out is STR in table[content]
+  
+  # Generate key if not provided
+  if (key) is "" try (
+    key=weclew.keygen() -out is STR
+  )
+  
+  # Encrypt content
+  encrypted={} try (
+    # Convert to bytes
+    bytes=file_content -to -bytes
+    
+    # Apply encryption
+    cipher=weclew.cipher(key, weclew.algorithm)
+    encrypted.data=cipher.encrypt(bytes)
+    
+    # Encode to DevRC string
+    devrc_string=encrypted.data -encode weclew.encoding
+    devrc_string="WECLEW:" + weclew.algorithm + ":" + devrc_string
+    
+    encrypted.success=true
+    encrypted.string=devrc_string
+    encrypted.key=key
+    
+    return {encrypted.success, encrypted.string, encrypted.key}
+  ) else catch {
+    err in STR "Encryption failed" with file_path
+    return err
+  }
+)
+
+# Decrypt DevRC string to file
+weclew.decrypt=function (
+  devrc_string="" is STR
+  key="" is STR
+  output_path="" is STR
+  
+  # Parse DevRC string
+  if (devrc_string) -startswith "WECLEW:" try (
+    # Extract components
+    parts=devrc_string -split ":"
+    algorithm=parts[1]
+    encoded_data=parts[2]
+    
+    # Decode from base64
+    encrypted_bytes=encoded_data -decode weclew.encoding
+    
+    # Decrypt
+    cipher=weclew.cipher(key, algorithm)
+    decrypted_bytes=cipher.decrypt(encrypted_bytes)
+    
+    # Convert to string
+    decrypted_content=decrypted_bytes -to -string
+    
+    # Write to file
+    if (output_path) is not "" try (
+      -out output_path with decrypted_content
+      decrypted.success=true
+      decrypted.path=output_path
+      return {decrypted.success, decrypted.path}
+    )
+    
+    return {decrypted.success=true, decrypted.content=decrypted_content}
+  ) else catch {
+    err in STR "Invalid WECLEW format" with devrc_string
+    return err
+  }
+)
+
+# =============================================================================
+# WECLEW KEY GENERATION
+# =============================================================================
+
+@[WeclewKeyGen]
+[WECLEW.KEYGEN]
+# Generate encryption key
+weclew.keygen=function (
+  key_size=weclew.key_size
+  
+  # Generate random key
+  key={} try (
+    -cmdbin -cmdline -rline "openssl rand -base64" with key_size
+    random_bytes=get -random -bytes key_size
+    key.data=random_bytes -encode "base64"
+    key.size=key_size
+    key.algorithm=weclew.algorithm
+    
+    return key.data
+  )
+)
+
+# Key from password
+weclew.key.from_password=function (
+  password="" is STR
+  salt="" is STR
+  
+  # Generate salt if not provided
+  if (salt) is "" try (
+    salt=weclew.salt.generate()
+  )
+  
+  # Derive key from password
+  -cmdbin -cmdline -rline "openssl pbkdf2" with password, salt
+  key=get -derive -key password, salt
+  
+  return key
+)
+
+# Generate salt
+weclew.salt.generate=function (
+  salt_size=16
+  
+  # Generate random salt
+  -cmdbin -cmdline -rline "openssl rand -hex" with salt_size
+  salt=get -random -bytes salt_size
+  
+  return salt
+)
+
+# =============================================================================
+# WECLEW FILE OPERATIONS
+# =============================================================================
+
+@[WeclewFile]
+[WECLEW.FILE]
+# Encrypt file in place
+weclew.file.encrypt=function (
+  file_path="" is STR
+  key="" is STR
+  keep_original=false
+  
+  # Encrypt file
+  result=weclew.encrypt(file_path, key)
+  
+  if (result.success) is true try (
+    # Write encrypted string to file
+    encrypted_path=file_path + ".weclew"
+    -out encrypted_path with result.string
+    
+    # Remove original if specified
+    if (keep_original) is false try (
+      -rm file_path
+    )
+    
+    return {success=true, encrypted_path=encrypted_path, key=result.key}
+  ) else catch {
+    return result
+  }
+)
+
+# Decrypt file in place
+weclew.file.decrypt=function (
+  encrypted_path="" is STR
+  key="" is STR
+  keep_encrypted=false
+  
+  # Read encrypted string
+  encrypted_string=get encrypted_path -out is STR
+  
+  # Remove .weclew extension for output
+  output_path=encrypted_path -replace ".weclew" ""
+  
+  # Decrypt
+  result=weclew.decrypt(encrypted_string, key, output_path)
+  
+  if (result.success) is true try (
+    # Remove encrypted file if specified
+    if (keep_encrypted) is false try (
+      -rm encrypted_path
+    )
+    
+    return {success=true, decrypted_path=output_path}
+  ) else catch {
+    return result
+  }
+)
+
+# =============================================================================
+# WECLEW BATCH OPERATIONS
+# =============================================================================
+
+@[WeclewBatch]
+[WECLEW.BATCH]
+# Encrypt multiple files
+weclew.batch.encrypt=function (
+  file_paths=[] in table[content]
+  key="" is STR
+  
+  # Generate single key for all files
+  if (key) is "" try (
+    key=weclew.keygen()
+  )
+  
+  results=[]
+  for (file) in file_paths try (
+    result=weclew.file.encrypt(file, key, false)
+    results -add result
+  )
+  
+  return {results=results, key=key}
+)
+
+# Decrypt multiple files
+weclew.batch.decrypt=function (
+  encrypted_paths=[] in table[content]
+  key="" is STR
+  
+  results=[]
+  for (file) in encrypted_paths try (
+    result=weclew.file.decrypt(file, key, false)
+    results -add result
+  )
+  
+  return results
+)
+
+# =============================================================================
+# COMBINED OPERATIONS - VULTURE + WECLEW
+# =============================================================================
+
+@[Combined]
+[VULTURE.WECLEW]
+# Fetch and encrypt
+vulture.fetch.encrypt=function (
+  link=vulture.networking.priority
+  key="" is STR
+  
+  # Fetch content
+  response=vulture.fetch(link)
+  
+  if (response.success) is true try (
+    # Save to temporary file
+    temp_file="./temp_download.tmp"
+    -out temp_file with response.body
+    
+    # Encrypt
+    encrypted=weclew.encrypt(temp_file, key)
+    
+    # Clean up temp file
+    -rm temp_file
+    
+    return encrypted
+  ) else catch {
+    return response
+  }
+)
+
+# Download and encrypt
+vulture.download.encrypt=function (
+  link=vulture.networking.priority
+  key="" is STR
+  output_path="./"
+  
+  # Download file
+  download_result=vulture.download(link, output_path, "")
+  
+  if (download_result.success) is true try (
+    # Encrypt downloaded file
+    encrypted=weclew.file.encrypt(download_result.path, key, false)
+    return encrypted
+  ) else catch {
+    return download_result
+  }
+)
+
+# Decrypt and upload
+weclew.decrypt.upload=function (
+  encrypted_string="" is STR
+  key="" is STR
+  upload_url="" is STR
+  
+  # Decrypt to temp file
+  temp_file="./temp_upload.tmp"
+  decrypted=weclew.decrypt(encrypted_string, key, temp_file)
+  
+  if (decrypted.success) is true try (
+    # Upload file
+    -cmdbin -cmdline -rline "curl -X POST -F file=@" with temp_file, upload_url
+    upload_result=get upload_url -out table[content]
+    
+    # Clean up temp file
+    -rm temp_file
+    
+    return upload_result
+  ) else catch {
+    return decrypted
+  }
+)
+
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+
+@[Examples]
+[USAGE.EXAMPLES]
+# Example 1: Simple fetch
+example1=vulture.fetch(vulture.networking.priority="https://example.com")
+
+# Example 2: Download file
+example2=vulture.download(
+  vulture.networking.priority="https://example.com/file.zip",
+  output_path="./downloads/",
+  filename="file.zip"
+)
+
+# Example 3: API request
+example3=vulture.api.request(
+  endpoint="https://api.example.com/data",
+  method="GET"
+)
+
+# Example 4: Encrypt file
+example4=weclew.encrypt(
+  file_path="./secret.txt",
+  key="my_secret_key_here"
+)
+
+# Example 5: Decrypt file
+example5=weclew.decrypt(
+  devrc_string="WECLEW:AES-256:base64encodedstring...",
+  key="my_secret_key_here",
+  output_path="./decrypted.txt"
+)
+
+# Example 6: Encrypt file in place
+example6=weclew.file.encrypt(
+  file_path="./document.pdf",
+  key="",
+  keep_original=false
+)
+
+# Example 7: Batch encrypt
+example7=weclew.batch.encrypt(
+  file_paths=["./file1.txt", "./file2.txt", "./file3.txt"],
+  key=""
+)
+
+# Example 8: Fetch and encrypt
+example8=vulture.fetch.encrypt(
+  link="https://example.com/sensitive-data.json",
+  key="encryption_key"
+)
+
+# =============================================================================
+# CONFIGURATION AND SETUP
+# =============================================================================
+# Weclew configuration paths
+.devrc -crfolder -out "./Weclew/encrypted"
+.devrc -crfolder -out "./Weclew/decrypted"
+.devrc -crfolder -out "./Weclew/keys"
