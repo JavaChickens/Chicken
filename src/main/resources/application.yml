@@ -1,0 +1,229 @@
+# Chicken Minecraft Server Hosting Platform Configuration
+# Production-ready configuration with comprehensive settings for
+# enterprise deployment, monitoring, and performance optimization
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
+  error:
+    include-message: always
+    include-binding-errors: always
+
+spring:
+  application:
+    name: chicken-server-host
+  
+  # Database Configuration (H2 for simplicity, easily changeable to PostgreSQL/MySQL)
+  datasource:
+    url: jdbc:h2:file:./data/chicken;DB_CLOSE_ON_EXIT=FALSE;AUTO_RECONNECT=TRUE
+    driver-class-name: org.h2.Driver
+    username: chicken
+    password: chicken123
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  
+  # JPA/Hibernate Configuration
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+  
+  # H2 Console (disable in production)
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: false
+  
+  # Jackson JSON Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      indent-output: true
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+
+# Chicken Application Configuration
+chicken:
+  server:
+    # Directory where all server data is stored
+    data-directory: ./servers
+    # Maximum number of servers that can be created
+    max-servers: 50
+    # Default memory allocation for new servers (MB)
+    default-memory: 2048
+    # Default Minecraft version for new servers
+    default-version: "1.20.1"
+    # Server startup timeout (seconds)
+    startup-timeout: 120
+    # Server shutdown timeout (seconds)
+    shutdown-timeout: 60
+  
+  web:
+    # Web interface port (overridden by server.port)
+    port: 8080
+    # Default admin credentials (CHANGE IN PRODUCTION)
+    admin-user: admin
+    admin-password: admin
+    # Allow user registration
+    allow-registration: true
+    # Session timeout (minutes)
+    session-timeout: 60
+  
+  plugin:
+    # Plugin cache directory
+    cache-directory: ./plugins-cache
+    # Enable automatic plugin updates
+    auto-update: false
+    # Plugin download timeout (seconds)
+    download-timeout: 300
+    # Maximum plugin file size (MB)
+    max-plugin-size: 100
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.chicken: INFO
+    org.springframework: WARN
+    org.hibernate: WARN
+    org.apache.http: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: ./logs/chicken.log
+    max-size: 100MB
+    max-history: 30
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+    metrics:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: chicken-server-host
+
+# Thread Pool Configuration
+spring.task.execution:
+  pool:
+    core-size: 4
+    max-size: 16
+    queue-capacity: 100
+  thread-name-prefix: chicken-task-
+
+# HTTP Client Configuration
+spring.http.client:
+  timeout:
+    connect: 30s
+    read: 60s
+
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: dev
+  
+  # Enable H2 console in development
+  h2:
+    console:
+      enabled: true
+      settings:
+        web-allow-others: true
+
+logging:
+  level:
+    com.chicken: DEBUG
+    org.springframework.web: DEBUG
+
+chicken:
+  server:
+    max-servers: 5
+    startup-timeout: 60
+
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: prod
+  
+  # Disable H2 console in production
+  h2:
+    console:
+      enabled: false
+  
+  # Production database (example PostgreSQL configuration)
+  # datasource:
+  #   url: jdbc:postgresql://localhost:5432/chicken
+  #   driver-class-name: org.postgresql.Driver
+  #   username: ${DB_USERNAME:chicken}
+  #   password: ${DB_PASSWORD:chicken123}
+
+logging:
+  level:
+    root: WARN
+    com.chicken: INFO
+  file:
+    name: /var/log/chicken/chicken.log
+
+chicken:
+  web:
+    # Change default credentials in production
+    admin-user: ${ADMIN_USER:admin}
+    admin-password: ${ADMIN_PASSWORD:changeme}
+    allow-registration: false
+  
+  server:
+    data-directory: /opt/chicken/servers
+  
+  plugin:
+    cache-directory: /opt/chicken/plugins-cache
+
+---
+# Docker Profile
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+chicken:
+  server:
+    data-directory: /app/data/servers
+  plugin:
+    cache-directory: /app/data/plugins-cache
+
+logging:
+  file:
+    name: /app/logs/chicken.log

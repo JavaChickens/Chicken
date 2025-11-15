@@ -1,0 +1,210 @@
+# Chicken Minecraft Server Hosting Platform - Docker Compose
+# Production-ready deployment configuration with monitoring and persistence
+# Copyright (c) 2025 piratebomber - Licensed under Apache 2.0
+
+version: '3.8'
+
+services:
+  # Main Chicken application
+  chicken-app:
+    build: .
+    container_name: chicken-server-host
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker,prod
+      - JAVA_OPTS=-Xmx4g -Xms2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200
+      - DB_USERNAME=chicken
+      - DB_PASSWORD=chicken123
+      - ADMIN_USER=admin
+      - ADMIN_PASSWORD=changeme
+    volumes:
+      - chicken_data:/app/data
+      - chicken_logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - chicken-network
+    depends_on:
+      - chicken-db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chicken.rule=Host(`chicken.localhost`)"
+      - "traefik.http.services.chicken.loadbalancer.server.port=8080"
+
+  # PostgreSQL database for production
+  chicken-db:
+    image: postgres:15-alpine
+    container_name: chicken-database
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=chicken
+      - POSTGRES_USER=chicken
+      - POSTGRES_PASSWORD=chicken123
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - chicken_db_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - chicken-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chicken -d chicken"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    ports:
+      - "5432:5432"
+
+  # Redis for caching and session management
+  chicken-redis:
+    image: redis:7-alpine
+    container_name: chicken-cache
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass chicken123
+    volumes:
+      - chicken_redis_data:/data
+    networks:
+      - chicken-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx reverse proxy
+  chicken-nginx:
+    image: nginx:alpine
+    container_name: chicken-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - chicken_logs:/var/log/nginx
+    networks:
+      - chicken-network
+    depends_on:
+      - chicken-app
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus monitoring
+  chicken-prometheus:
+    image: prom/prometheus:latest
+    container_name: chicken-monitoring
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - chicken_prometheus_data:/prometheus
+    networks:
+      - chicken-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+  # Grafana dashboards
+  chicken-grafana:
+    image: grafana/grafana:latest
+    container_name: chicken-dashboards
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - chicken_grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - chicken-network
+    depends_on:
+      - chicken-prometheus
+
+  # Log aggregation with ELK stack
+  chicken-elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: chicken-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - chicken_elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - chicken-network
+    ports:
+      - "9200:9200"
+
+  chicken-logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: chicken-logstash
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - chicken_logs:/var/log/chicken:ro
+    networks:
+      - chicken-network
+    depends_on:
+      - chicken-elasticsearch
+
+  chicken-kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: chicken-kibana
+    restart: unless-stopped
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://chicken-elasticsearch:9200
+    networks:
+      - chicken-network
+    depends_on:
+      - chicken-elasticsearch
+
+# Named volumes for data persistence
+volumes:
+  chicken_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data
+  chicken_logs:
+    driver: local
+  chicken_db_data:
+    driver: local
+  chicken_redis_data:
+    driver: local
+  chicken_prometheus_data:
+    driver: local
+  chicken_grafana_data:
+    driver: local
+  chicken_elasticsearch_data:
+    driver: local
+
+# Custom network for service communication
+networks:
+  chicken-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
