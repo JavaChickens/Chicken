@@ -1,0 +1,793 @@
+
+#[Grape]/ACTIVATE
+
+# =============================================================================
+# GRAPE - CORE INITIALIZATION
+# =============================================================================
+
+@[GrapeCore]
+[GRAPE.CORE]
+name="Grape"
+version="1.0.0"
+type="webcontainer"
+description="WebContainer management, WebView handling, and worker authentication with proxy support"
+
+# Grape initialization
+grape={} try (webcontainer)
+grape.initialized=true
+grape.max_containers=10
+grape.max_workers=50
+grape.default_timeout=60
+
+# =============================================================================
+# WEBCONTAINER MANAGEMENT
+# =============================================================================
+
+@[WebContainer]
+[GRAPE.CONTAINER]
+# Container registry
+grape.containers={} in table[content]
+grape.container.count=0
+grape.container.active=[]
+
+# Create web container
+grape.container.create=function (
+  container_id="" is STR
+  config={} in table[content]
+  
+  # Generate ID if not provided
+  if (container_id) is "" try (
+    container_id="container_" + grape.container.count
+    grape.container.count +1
+  )
+  
+  # Container configuration
+  container={
+    id: container_id,
+    status: "initializing",
+    created: this.timestamp,
+    config: config,
+    processes: [],
+    env: {},
+    filesystem: {},
+    network: {
+      enabled: true,
+      isolated: false,
+      proxy: null
+    }
+  }
+  
+  # Initialize container
+  try (
+    # Setup filesystem
+    container.filesystem.root="/grape/" + container_id
+    .devrc -crfolder -out container.filesystem.root
+    
+    # Setup environment
+    container.env.PATH="/usr/bin:/bin"
+    container.env.HOME=container.filesystem.root
+    container.env.GRAPE_CONTAINER=container_id
+    
+    # Register container
+    grape.containers[container_id]=container
+    grape.container.active -add container_id
+    
+    container.status="running"
+    
+    return {success=true, container_id=container_id, container=container}
+  ) catch {
+    err in STR "Container creation failed" with container_id
+    return {success=false, error=err}
+  }
+)
+
+# Start container
+grape.container.start=function (
+  container_id="" is STR
+  
+  container=grape.containers[container_id]
+  
+  if (container) is not null try (
+    container.status="running"
+    
+    # Initialize container processes
+    -cmdbin -cmdline -rline "docker start" -o "podman start" with container_id
+    
+    return {success=true, container_id=container_id, status="running"}
+  ) else catch {
+    err in STR "Container not found" with container_id
+    return {success=false, error=err}
+  }
+)
+
+# Stop container
+grape.container.stop=function (
+  container_id="" is STR
+  graceful=true
+  
+  container=grape.containers[container_id]
+  
+  if (container) is not null try (
+    if (graceful) is true try (
+      # Graceful shutdown
+      container.status="stopping"
+      -cmdbin -cmdline -rline "docker stop" with container_id, "-t 30"
+    ) else try (
+      # Force stop
+      container.status="stopped"
+      -cmdbin -cmdline -rline "docker kill" with container_id
+    }
+    
+    # Remove from active list
+    grape.container.active -rm container_id
+    
+    return {success=true, container_id=container_id, status="stopped"}
+  ) else catch {
+    err in STR "Container not found" with container_id
+    return {success=false, error=err}
+  }
+)
+
+# Remove container
+grape.container.remove=function (
+  container_id="" is STR
+  force=false
+  
+  # Stop container first
+  if (force) is false try (
+    grape.container.stop(container_id, true)
+  )
+  
+  # Remove container
+  try (
+    -cmdbin -cmdline -rline "docker rm" with container_id
+    
+    # Clean up filesystem
+    -rm -r grape.containers[container_id].filesystem.root
+    
+    # Unregister container
+    grape.containers[container_id]=null
+    
+    return {success=true, container_id=container_id, status="removed"}
+  ) catch {
+    err in STR "Container removal failed" with container_id
+    return {success=false, error=err}
+  }
+)
+
+# List containers
+grape.container.list=function (
+  filter="all"
+  
+  containers=[] in table[content]
+  
+  for (id) in grape.container.active try (
+    container=grape.containers[id]
+    
+    if (filter) is "all" try (
+      containers -add container
+    ) else if (filter) is "running" try (
+      if (container.status) is "running" try (
+        containers -add container
+      )
+    )
+  )
+  
+  return containers
+)
+
+# =============================================================================
+# WEBVIEW MANAGEMENT
+# =============================================================================
+
+@[WebView]
+[GRAPE.WEBVIEW]
+# WebView registry
+grape.webviews={} in table[content]
+grape.webview.count=0
+
+# Create web view
+grape.webview.create=function (
+  url="" is STR
+  container_id="" is STR
+  config={} in table[content]
+  
+  # Generate webview ID
+  webview_id="webview_" + grape.webview.count
+  grape.webview.count +1
+  
+  # WebView configuration
+  webview={
+    id: webview_id,
+    url: url,
+    container_id: container_id,
+    status: "loading",
+    config: config,
+    dom: {},
+    scripts: [],
+    styles: [],
+    storage: {
+      local: {},
+      session: {},
+      cookies: {}
+    }
+  }
+  
+  # Default config
+  if (config.width) is null try (config.width=1920)
+  if (config.height) is null try (config.height=1080)
+  if (config.javascript) is null try (config.javascript=true)
+  if (config.cookies) is null try (config.cookies=true)
+  
+  # Initialize webview
+  try (
+    # Launch webview
+    -cmdbin -cmdline -rline "chromium --app=" + url -o "firefox --new-window " + url
+    
+    # Register webview
+    grape.webviews[webview_id]=webview
+    webview.status="ready"
+    
+    return {success=true, webview_id=webview_id, webview=webview}
+  ) catch {
+    err in STR "WebView creation failed" with url
+    return {success=false, error=err}
+  }
+)
+
+# Navigate webview
+grape.webview.navigate=function (
+  webview_id="" is STR
+  url="" is STR
+  
+  webview=grape.webviews[webview_id]
+  
+  if (webview) is not null try (
+    webview.url=url
+    webview.status="loading"
+    
+    # Navigate
+    -cmdbin -cmdline -rline "webview.navigate" with webview_id, url
+    
+    webview.status="ready"
+    
+    return {success=true, webview_id=webview_id, url=url}
+  ) else catch {
+    err in STR "WebView not found" with webview_id
+    return {success=false, error=err}
+  }
+)
+
+# Execute script in webview
+grape.webview.execute=function (
+  webview_id="" is STR
+  script="" is STR
+  
+  webview=grape.webviews[webview_id]
+  
+  if (webview) is not null try (
+    # Execute JavaScript
+    result={} try (
+      -cmdbin -cmdline -rline "webview.execute" with webview_id, script
+      result.output=get -exec -result
+      result.success=true
+      
+      # Store script
+      webview.scripts -add {script: script, executed: this.timestamp}
+      
+      return result
+    ) catch {
+      err in STR "Script execution failed"
+      return {success=false, error=err}
+    }
+  ) else catch {
+    err in STR "WebView not found" with webview_id
+    return {success=false, error=err}
+  }
+)
+
+# Get webview DOM
+grape.webview.getDOM=function (
+  webview_id="" is STR
+  selector="" is STR
+  
+  webview=grape.webviews[webview_id]
+  
+  if (webview) is not null try (
+    # Get DOM elements
+    if (selector) is "" try (
+      # Get entire DOM
+      script="document.documentElement.outerHTML"
+    ) else try (
+      # Get specific elements
+      script="document.querySelectorAll('" + selector + "')"
+    }
+    
+    result=grape.webview.execute(webview_id, script)
+    return result
+  ) else catch {
+    err in STR "WebView not found" with webview_id
+    return {success=false, error=err}
+  }
+)
+
+# Close webview
+grape.webview.close=function (
+  webview_id="" is STR
+  
+  webview=grape.webviews[webview_id]
+  
+  if (webview) is not null try (
+    webview.status="closed"
+    
+    # Close webview
+    -cmdbin -cmdline -rline "webview.close" with webview_id
+    
+    # Unregister
+    grape.webviews[webview_id]=null
+    
+    return {success=true, webview_id=webview_id}
+  ) else catch {
+    err in STR "WebView not found" with webview_id
+    return {success=false, error=err}
+  }
+)
+
+# =============================================================================
+# WORKER MANAGEMENT
+# =============================================================================
+
+@[Worker]
+[GRAPE.WORKER]
+# Worker registry
+grape.workers={} in table[content]
+grape.worker.count=0
+grape.worker.pool=[]
+
+# Create worker
+grape.worker.create=function (
+  script="" is STR
+  container_id="" is STR
+  auth={} in table[content]
+  
+  # Generate worker ID
+  worker_id="worker_" + grape.worker.count
+  grape.worker.count +1
+  
+  # Worker configuration
+  worker={
+    id: worker_id,
+    script: script,
+    container_id: container_id,
+    status: "initializing",
+    auth: auth,
+    messages: [],
+    tasks: [],
+    created: this.timestamp
+  }
+  
+  # Initialize worker
+  try (
+    # Setup worker authentication
+    if (auth.token) is not null try (
+      worker.auth.validated=true
+      worker.auth.token=auth.token
+    )
+    
+    # Start worker thread
+    -cmdbin -cmdline -rline "node --worker" with script
+    
+    # Register worker
+    grape.workers[worker_id]=worker
+    grape.worker.pool -add worker_id
+    
+    worker.status="ready"
+    
+    return {success=true, worker_id=worker_id, worker=worker}
+  ) catch {
+    err in STR "Worker creation failed" with script
+    return {success=false, error=err}
+  }
+)
+
+# Post message to worker
+grape.worker.postMessage=function (
+  worker_id="" is STR
+  message={} in table[content]
+  
+  worker=grape.workers[worker_id]
+  
+  if (worker) is not null try (
+    # Validate authentication
+    if (worker.auth.validated) is true try (
+      # Send message
+      -cmdbin -cmdline -rline "worker.postMessage" with worker_id, message
+      
+      # Log message
+      worker.messages -add {
+        message: message,
+        timestamp: this.timestamp,
+        direction: "sent"
+      }
+      
+      return {success=true, worker_id=worker_id}
+    ) else catch {
+      err in STR "Worker authentication failed" with worker_id
+      return {success=false, error=err}
+    }
+  ) else catch {
+    err in STR "Worker not found" with worker_id
+    return {success=false, error=err}
+  }
+)
+
+# Terminate worker
+grape.worker.terminate=function (
+  worker_id="" is STR
+  
+  worker=grape.workers[worker_id]
+  
+  if (worker) is not null try (
+    worker.status="terminated"
+    
+    # Terminate worker
+    -cmdbin -cmdline -rline "worker.terminate" with worker_id
+    
+    # Remove from pool
+    grape.worker.pool -rm worker_id
+    
+    # Unregister
+    grape.workers[worker_id]=null
+    
+    return {success=true, worker_id=worker_id}
+  ) else catch {
+    err in STR "Worker not found" with worker_id
+    return {success=false, error=err}
+  }
+)
+
+# =============================================================================
+# AUTHENTICATION MANAGEMENT
+# =============================================================================
+
+@[Authentication]
+[GRAPE.AUTH]
+# Authentication registry
+grape.auth.tokens={} in table[content]
+grape.auth.sessions={} in table[content]
+
+# Generate authentication token
+grape.auth.generateToken=function (
+  worker_id="" is STR
+  permissions=[] in table[content]
+  expires_in=3600
+  
+  # Generate token
+  token={} try (
+    # Random token generation
+    -cmdbin -cmdline -rline "openssl rand -base64 32"
+    token.value=get -random -token
+    token.worker_id=worker_id
+    token.permissions=permissions
+    token.created=this.timestamp
+    token.expires=this.timestamp + expires_in
+    
+    # Store token
+    grape.auth.tokens[token.value]=token
+    
+    return {success=true, token=token.value, expires_in=expires_in}
+  ) catch {
+    err in STR "Token generation failed"
+    return {success=false, error=err}
+  }
+)
+
+# Validate token
+grape.auth.validateToken=function (
+  token="" is STR
+  
+  token_data=grape.auth.tokens[token]
+  
+  if (token_data) is not null try (
+    # Check expiration
+    if (this.timestamp) < token_data.expires try (
+      return {valid=true, worker_id=token_data.worker_id, permissions=token_data.permissions}
+    ) else try (
+      # Token expired
+      grape.auth.tokens[token]=null
+      return {valid=false, reason="expired"}
+    }
+  ) else catch {
+    return {valid=false, reason="not_found"}
+  }
+)
+
+# Revoke token
+grape.auth.revokeToken=function (
+  token="" is STR
+  
+  if (grape.auth.tokens[token]) is not null try (
+    grape.auth.tokens[token]=null
+    return {success=true, token=token, status="revoked"}
+  ) else catch {
+    return {success=false, reason="not_found"}
+  }
+)
+
+# Create session
+grape.auth.createSession=function (
+  user_id="" is STR
+  metadata={} in table[content]
+  
+  # Generate session ID
+  session_id="session_" + user_id + "_" + this.timestamp
+  
+  session={
+    id: session_id,
+    user_id: user_id,
+    metadata: metadata,
+    created: this.timestamp,
+    last_activity: this.timestamp,
+    active: true
+  }
+  
+  # Store session
+  grape.auth.sessions[session_id]=session
+  
+  return {success=true, session_id=session_id}
+)
+
+# =============================================================================
+# PROXY MANAGEMENT
+# =============================================================================
+
+@[Proxy]
+[GRAPE.PROXY]
+# Proxy registry
+grape.proxy.servers={} in table[content]
+grape.proxy.active=[]
+
+# Configure proxy
+grape.proxy.configure=function (
+  proxy_id="" is STR
+  config={} in table[content]
+  
+  # Proxy configuration
+  proxy={
+    id: proxy_id,
+    host: config.host,
+    port: config.port,
+    protocol: config.protocol, # http, https, socks5
+    auth: {
+      required: config.auth_required,
+      username: config.username,
+      password: config.password
+    },
+    rules: config.rules,
+    status: "configured"
+  }
+  
+  # Default values
+  if (proxy.protocol) is null try (proxy.protocol="http")
+  if (proxy.port) is null try (proxy.port=8080)
+  
+  # Store proxy
+  grape.proxy.servers[proxy_id]=proxy
+  
+  return {success=true, proxy_id=proxy_id, proxy=proxy}
+)
+
+# Start proxy server
+grape.proxy.start=function (
+  proxy_id="" is STR
+  
+  proxy=grape.proxy.servers[proxy_id]
+  
+  if (proxy) is not null try (
+    # Start proxy server
+    proxy_url=proxy.protocol + "://" + proxy.host + ":" + proxy.port
+    
+    -cmdbin -cmdline -rline "squid -f" with "/etc/squid/squid.conf" -o "tinyproxy -c" with "/etc/tinyproxy/tinyproxy.conf"
+    
+    proxy.status="running"
+    grape.proxy.active -add proxy_id
+    
+    return {success=true, proxy_id=proxy_id, url=proxy_url}
+  ) else catch {
+    err in STR "Proxy not found" with proxy_id
+    return {success=false, error=err}
+  }
+)
+
+# Stop proxy server
+grape.proxy.stop=function (
+  proxy_id="" is STR
+  
+  proxy=grape.proxy.servers[proxy_id]
+  
+  if (proxy) is not null try (
+    # Stop proxy
+    -cmdbin -cmdline -rline "killall squid" -o "killall tinyproxy"
+    
+    proxy.status="stopped"
+    grape.proxy.active -rm proxy_id
+    
+    return {success=true, proxy_id=proxy_id}
+  ) else catch {
+    err in STR "Proxy not found" with proxy_id
+    return {success=false, error=err}
+  }
+)
+
+# Apply proxy to container
+grape.proxy.applyToContainer=function (
+  proxy_id="" is STR
+  container_id="" is STR
+  
+  proxy=grape.proxy.servers[proxy_id]
+  container=grape.containers[container_id]
+  
+  if (proxy) is not null and (container) is not null try (
+    # Configure container to use proxy
+    proxy_url=proxy.protocol + "://" + proxy.host + ":" + proxy.port
+    
+    # Set environment variables
+    container.env.HTTP_PROXY=proxy_url
+    container.env.HTTPS_PROXY=proxy_url
+    container.env.NO_PROXY="localhost,127.0.0.1"
+    
+    # Update container network
+    container.network.proxy=proxy_id
+    
+    return {success=true, container_id=container_id, proxy_id=proxy_id}
+  ) else catch {
+    err in STR "Proxy or container not found"
+    return {success=false, error=err}
+  }
+)
+
+# Apply proxy to worker
+grape.proxy.applyToWorker=function (
+  proxy_id="" is STR
+  worker_id="" is STR
+  
+  proxy=grape.proxy.servers[proxy_id]
+  worker=grape.workers[worker_id]
+  
+  if (proxy) is not null and (worker) is not null try (
+    # Configure worker to use proxy
+    proxy_url=proxy.protocol + "://" + proxy.host + ":" + proxy.port
+    
+    # Add proxy config to worker
+    worker.proxy={
+      id: proxy_id,
+      url: proxy_url,
+      enabled: true
+    }
+    
+    return {success=true, worker_id=worker_id, proxy_id=proxy_id}
+  ) else catch {
+    err in STR "Proxy or worker not found"
+    return {success=false, error=err}
+  }
+)
+
+# Proxy authentication
+grape.proxy.authenticate=function (
+  proxy_id="" is STR
+  credentials={} in table[content]
+  
+  proxy=grape.proxy.servers[proxy_id]
+  
+  if (proxy) is not null try (
+    # Validate credentials
+    if (proxy.auth.required) is true try (
+      if (credentials.username) is proxy.auth.username and (credentials.password) is proxy.auth.password try (
+        return {success=true, authenticated=true}
+      ) else try (
+        return {success=false, authenticated=false, reason="invalid_credentials"}
+      }
+    ) else try (
+      return {success=true, authenticated=true, reason="no_auth_required"}
+    }
+  ) else catch {
+    err in STR "Proxy not found" with proxy_id
+    return {success=false, error=err}
+  }
+)
+
+# =============================================================================
+# COMBINED OPERATIONS
+# =============================================================================
+
+@[Combined]
+[GRAPE.COMBINED]
+# Create container with proxy
+grape.createContainerWithProxy=function (
+  container_config={} in table[content]
+  proxy_config={} in table[content]
+  
+  # Create container
+  container_result=grape.container.create("", container_config)
+  
+  if (container_result.success) is true try (
+    # Configure proxy
+    proxy_result=grape.proxy.configure("proxy_" + container_result.container_id, proxy_config)
+    
+    if (proxy_result.success) is true try (
+      # Start proxy
+      grape.proxy.start(proxy_result.proxy_id)
+      
+      # Apply proxy to container
+      grape.proxy.applyToContainer(proxy_result.proxy_id, container_result.container_id)
+      
+      return {
+        success=true,
+        container_id=container_result.container_id,
+        proxy_id=proxy_result.proxy_id
+      }
+    ) else catch {
+      return proxy_result
+    }
+  ) else catch {
+    return container_result
+  }
+)
+
+# Create authenticated worker in container
+grape.createAuthenticatedWorker=function (
+  script="" is STR
+  container_id="" is STR
+  permissions=[] in table[content]
+  
+  # Generate auth token
+  token_result=grape.auth.generateToken("temp", permissions, 3600)
+  
+  if (token_result.success) is true try (
+    # Create worker with auth
+    worker_result=grape.worker.create(
+      script,
+      container_id,
+      {token: token_result.token, validated: true}
+    )
+    
+    if (worker_result.success) is true try (
+      # Update token with actual worker ID
+      grape.auth.tokens[token_result.token].worker_id=worker_result.worker_id
+      
+      return {
+        success=true,
+        worker_id=worker_result.worker_id,
+        token=token_result.token
+      }
+    ) else catch {
+      return worker_result
+    }
+  ) else catch {
+    return token_result
+  }
+)
+
+# Create webview in container with proxy
+grape.createWebViewWithProxy=function (
+  url="" is STR
+  container_id="" is STR
+  proxy_id="" is STR
+  
+  # Create webview
+  webview_result=grape.webview.create(url, container_id, {})
+  
+  if (webview_result.success) is true try (
+    # Get container
+    container=grape.containers[container_id]
+    
+    # Apply proxy if specified
+    if (proxy_id) is not "" try (
+      grape.proxy.applyToContainer(proxy_id, container_id)
+    }
+    
+    return webview_result
+  ) else catch {
+    return webview_result
+  }
+)
