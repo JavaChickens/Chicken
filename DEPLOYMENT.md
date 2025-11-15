@@ -19,7 +19,7 @@ This guide provides comprehensive instructions for deploying the Chicken Minecra
 ### Windows
 ```cmd
 # Clone the repository
-git clone https://github.com/chicken-project/chicken.git
+git clone https://github.com/JavaChickens/Chicken.git
 cd chicken
 
 # Run the startup script
@@ -29,7 +29,7 @@ scripts\start.bat
 ### Linux/macOS
 ```bash
 # Clone the repository
-git clone https://github.com/chicken-project/chicken.git
+git clone https://github.com/JavaChickens/Chicken.git
 cd chicken
 
 # Make script executable and run
@@ -84,7 +84,7 @@ open http://localhost:8080
 
 1. **Clone and Build**
    ```bash
-   git clone https://github.com/chicken-project/chicken.git
+   git clone https://github.com/JavaChickens/Chicken.git
    cd chicken
    mvn clean package -DskipTests
    ```
