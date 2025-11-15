@@ -353,7 +353,7 @@ public class SelfHostingService {
         
         String deploymentJson = objectMapper.writeValueAsString(deploymentData);
         
-        // Deploy via Netlify API (simplified - in production would use proper authentication)
+        // Deploy via Netlify API (TODO: Make it more detailed and in-depth, this currently is simplified.)
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(NETLIFY_API_URL + "/sites"))
                 .header("Content-Type", "application/json")
